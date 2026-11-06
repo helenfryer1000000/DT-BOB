@@ -39,6 +39,10 @@ RUN Rscript -e "install.packages(c('remotes'), repos='https://cloud.r-project.or
 RUN Rscript -e "remotes::install_version('FMStable', version = '0.1-4', repos = 'https://cloud.r-project.org')" && \
     Rscript -e "remotes::install_version('harmonicmeanp', version = '3.0.1', repos = 'https://cloud.r-project.org')"
 
+# glmnet: lasso starting models for the best-of-both and top-m search (optional; the search runs without it)
+RUN Rscript -e "remotes::install_version('glmnet', version = '4.1-8', repos = 'https://cloud.r-project.org')" || \
+    echo "glmnet not installed: the search will start from the empty model only"
+
 FROM r-deps AS slurm-setup
 
 # Set up Munge
