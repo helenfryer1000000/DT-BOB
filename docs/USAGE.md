@@ -133,9 +133,10 @@ Measured on one core:
 |---|---|---|
 | AMD example (n = 145, ν = 15) | best of both, top-m | about 2 seconds |
 | AMD example (n = 145, ν = 15) | exhaustive, Gaussian / logistic | about 4 / 20 seconds |
-| Simulated, n = 100,000, ν = 1000, Gaussian | top-3, all 1000 tests | about 4 minutes |
+| Simulated, n = 100,000, ν = 1000, Gaussian | top-3, all 1000 tests | about 3 minutes (plus 10 seconds for the best model) |
+| Simulated, n = 20,000, ν = 200, logistic | best of both, all 200 tests | about 20 minutes (3 minutes for the best model) |
 
-The Gaussian family needs only $X^\top X$ and $X^\top y$, so its cost hardly depends on n once these are formed. Logistic and Poisson models refit the GLM for each model scored, so their cost grows with n. Use `ncores`, `test_variables="best"` or a smaller `search_candidates` to shorten long runs. Memory is dominated by the data matrix (8 bytes × n × number of design columns) plus up to about 200 MB of cached fits for logistic and Poisson models.
+The Gaussian family needs only $X^\top X$ and $X^\top y$, so its cost hardly depends on n once these are formed. Logistic and Poisson models refit the GLM for each model scored, so their cost grows with n. Roughly, a logistic run costs n × ν × (number of tests), so at n = 100,000 and ν = 1000 testing all 1000 variables would take more than a day on one core. For logistic models at that scale use `test_variables="best"` (tests only the variables in the best models, typically a few dozen), `ncores`, or both. Memory is dominated by the data matrix (8 bytes × n × number of design columns) plus up to about 200 MB of cached fits for logistic and Poisson models.
 
 ## Troubleshooting
 
