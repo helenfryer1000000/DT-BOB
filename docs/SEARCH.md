@@ -35,14 +35,14 @@ The result is the best model overall, $\hat s$, and a cache of every model score
 
 For a test of variables $\mathcal{V}$:
 
-* **With side** (models containing a tested variable): the climb starts from $\hat s$ if it contains a tested variable, otherwise from $\hat s$ plus each tested variable, and also from the best elite model on this side. Moves that would remove the last tested variable are not allowed.
+* **With side** (models containing a tested variable): the climb starts from $\hat s$ if it contains a tested variable, otherwise from $\hat s$ plus each tested variable (for a group of more than 10, the 10 whose addition screens best), and also from the best elite model on this side. Moves that would remove the last tested variable are not allowed.
 * **Without side** (models containing no tested variable): the climb starts from $\hat s$ with the tested variables removed, and from the best elite model on this side. Tested variables may not be added.
 
 Because the best model with a variable and the best model without it are usually close to $\hat s$, these climbs are short.
 
 For **top-m** (m ≥ 2) the search then scores the neighbours of each of the current *m* best models on each side, and repeats until the list of the *m* best stops changing (at most 5 rounds). In simulations, the runners-up nearly always lie within one or two add, drop or swap moves of the best model, which is why this works.
 
-If any test finds a model better than $\hat s$, the search climbs from that model to a new $\hat s$ and reruns all the tests from it (at most 5 times). So every test is anchored on the same, best-known model.
+If any test finds a model better than $\hat s$, the search climbs from that model to a new $\hat s$ and reruns all the tests from it (at most 5 times; if it is still finding better models after that, the log says so). So every test is anchored on the same, best-known model.
 
 ## How the search was checked
 
@@ -57,8 +57,8 @@ If any test finds a model better than $\hat s$, the search climbs from that mode
 | AR(1) correlation 0.5, no effects | 16 | 10,000 | Gaussian | 16/16 each |
 | AR(1) correlation 0.8, 3 effects | 12 | 5,000 | logistic | 12/12 each |
 
-The search found the exact best model and the exact statistic (difference 0 in $\log T$) in every case.
+The search found the exact best model and the exact statistic (difference 0 in $\log T$) in every case. The script also checks three group tests (top-3) on the AMD example, and exits with an error if anything differs.
 
-**At scale.** `tests/test_scale.R` simulates n = 100,000 observations of ν = 1000 variables in blocks of 10 with AR(1) correlation 0.9 within each block, and 10 true effects. The default search took 8 seconds to find the best model and about 4 minutes for all 1000 top-3 tests on one core (Gaussian). A second search with four times as many candidates per move and 100 restarts found the same best model and the same statistic for every test whose statistic was within a factor $e^{5}$ of 1 or above.
+**At scale.** `tests/test_scale.R` simulates n = 100,000 observations of ν = 1000 variables in blocks of 10 with AR(1) correlation 0.9 within each block, and 10 true effects. The default search took 8 seconds to find the best model and about 4 minutes for all 1000 top-3 tests on one core (Gaussian). A second, independent search (fresh cache, different seed, four times as many candidates per move, 100 restarts) found the same best model and the same statistic for every test whose statistic was within a factor $e^{5}$ of 1 or above.
 
 **What is not guaranteed.** A local search can in principle miss the best model. The lasso starts, swap moves, restarts and the re-anchoring rule make this unlikely, and the checks above found no case of it, but there is no proof. For important results, rerun with a larger `search_candidates` and `search_restarts` (and a different `seed`) and check that the statistics do not change.

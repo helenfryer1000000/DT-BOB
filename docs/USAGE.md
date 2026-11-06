@@ -10,7 +10,7 @@ Rscript -e 'install.packages("glmnet")'
 
 `ncores > 1` uses the base R package `parallel` (forking, so not on Windows).
 
-**The MCMC** needs R, Python, SLURM and the packages listed in `code/R_packages.txt` and `code/Python_packages.txt`. The easiest route is the Docker image: see [MCMC.md](MCMC.md). The image also installs `glmnet`, so every method runs inside it (the repository is at `/doublethink-mcmc` in the container; run the new methods from that folder).
+**The MCMC** needs R, Python, SLURM and the packages listed in `code/R_packages.txt` and `code/Python_packages.txt`. The easiest route is the Docker image: see [MCMC.md](MCMC.md). The image also installs `glmnet`, so every method runs inside it. In the container the repository is at `/doublethink-mcmc`: run the new methods from that folder, and set `workdir="/workspace"` in the config so the results land in the folder shared with your computer (the example configs use `workdir="output"`, which stays inside the container).
 
 ## Running
 
@@ -65,7 +65,7 @@ The config is read by both R and bash, so keep the `name=value` form with no spa
 
 | Entry | Default | Meaning |
 |---|---|---|
-| `top_m` | 3 | m for `method="top_m"`, from 2 to 10. |
+| `top_m` | 3 | m for `method="top_m"`, from 2 to 10. `method="exhaustive"` also uses it for its exact top-m column. |
 | `groups_filename` | none | Extra tests of groups of variables (see above). |
 | `test_variables` | `"all"` | `"all"` tests every variable. `"best"` tests only the variables in the 10 best models found, which is quicker. For best of both every other variable has a statistic of at most 1 (see [METHODS.md](METHODS.md#the-three-statistics)), so this rarely loses a discovery, but check the p-value a statistic of 1 would give with your μ, h and n before relying on it. |
 | `search_candidates` | 10 | Adds and swaps fitted exactly per step, after screening. Larger is slower and more thorough. |
@@ -80,7 +80,9 @@ The config is read by both R and bash, so keep the `name=value` form with no spa
 | `alpha` | 0.01 | FWER level for the "Significant (FWER)" column. |
 | `pvalue_cutoff` | 0.02 | Adjusted p-values above this are shown as "-". |
 
-`method="exhaustive"` ignores the search settings and stops if ν > 22.
+`method="exhaustive"` ignores the search settings and stops if ν > 20.
+
+With factor variables, the new methods need `intercept="true"`. A missing `exclude_filename` or `exclude_columns` file is an error; names in `exclude_columns` that are not in the data give a warning.
 
 ### MCMC only
 
@@ -98,6 +100,7 @@ All in `workdir/outname/`, tab-separated:
 | Variables tested | k (1 here). |
 | In best model | Whether the variable is in the best model overall. |
 | log10 statistic | $\log_{10}$ of $T_1$ (best of both), $T_m$ (top-m) or $\mathrm{PO}_{\mathcal{A}:\mathcal{O}}$ (exhaustive). Above 0 means the "with" side wins. |
+| log10 best of both (exact), log10 top-m (exact) | Exhaustive only: the exact $T_1$ and $T_m$ (m = `top_m`), for comparison with the full statistic. The p-value columns use the full statistic. |
 | -log10 Adjusted p-value | FWER-adjusted p-value over all tests (main result); "-" if above `pvalue_cutoff`. |
 | Significant (FWER) | `*` if the adjusted p-value is at most `alpha`. |
 | -log10 Single-test p-value | p-value for this test alone, not adjusted for multiple testing. |
@@ -107,11 +110,11 @@ All in `workdir/outname/`, tab-separated:
 
 **`results.bob.groups.tsv`**: the same for each group in `groups_filename`.
 
-**`results.bob.top-models.tsv`**: for every test, the m best models found on each side ("with" and "without") and their $\log_{10}$ posterior odds against the grand null.
+**`results.bob.top-models.tsv`** (search methods): for every test, the m best models found on each side ("with" and "without") and their $\log_{10}$ posterior odds against the grand null.
 
 **`results.bob.best-models.tsv`**: the best models found overall, with their $\log_{10}$ posterior odds and size.
 
-**`results.bob.best-model-coefficients.tsv`**: coefficients and standard errors of the best model overall.
+**`results.bob.best-model-coefficients.tsv`**: coefficients and standard errors of the best model overall (not written when the best model is the grand null model, as in the binary example).
 
 **`results.bob.log`**: settings, the best model, the number of models scored and the run time. A copy of the config is saved beside it.
 
@@ -128,7 +131,8 @@ Measured on one core:
 
 | Data | Method | Time |
 |---|---|---|
-| AMD example (n = 145, ν = 15) | any | about 2 seconds |
+| AMD example (n = 145, ν = 15) | best of both, top-m | about 2 seconds |
+| AMD example (n = 145, ν = 15) | exhaustive, Gaussian / logistic | about 4 / 20 seconds |
 | Simulated, n = 100,000, ν = 1000, Gaussian | top-3, all 1000 tests | about 4 minutes |
 
 The Gaussian family needs only $X^\top X$ and $X^\top y$, so its cost hardly depends on n once these are formed. Logistic and Poisson models refit the GLM for each model scored, so their cost grows with n. Use `ncores`, `test_variables="best"` or a smaller `search_candidates` to shorten long runs. Memory is dominated by the data matrix (8 bytes × n × number of design columns) plus up to about 200 MB of cached fits for logistic and Poisson models.

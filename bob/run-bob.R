@@ -50,6 +50,7 @@ default("alpha", 0.01)                  # FWER level for the "Significant" colum
 default("pvalue_cutoff", 0.02)          # p-values above this are shown as '-', as in the MCMC tables
 
 method = tolower(method)
+if(!test_variables %in% c("all", "best")) stop("test_variables must be \"all\" or \"best\"")
 if(!method %in% c("best_of_both", "top_m", "exhaustive")) stop("method must be best_of_both, top_m or exhaustive (use doublethink.sh for mcmc)")
 m = if(method == "best_of_both") 1 else as.integer(top_m)
 if(method == "top_m" && (m < 2 || m > 10)) stop("top_m must be between 2 and 10")
@@ -73,8 +74,11 @@ say("Doublethink (", method, if(method == "top_m") paste0(", m = ", m), ") start
 data = bob_load_data(columns_filename, input_filename, cases_filename,
 	if(nzchar(exclude_filename)) exclude_filename else NULL,
 	idcol=idcol, phenocol=phenocol, controls_subsample=as.numeric(controls_subsample), seed_subsample=seed_subsample)
-colnames.remove = if(nzchar(exclude_columns) && file.exists(exclude_columns)) { x = readLines(exclude_columns); x[nzchar(x)] } else character(0)
-design = bob_build_design(data$a, colnames.remove, as.numeric(nlevmax))
+if(nzchar(exclude_columns) && !file.exists(exclude_columns)) stop("exclude_columns file not found: ", exclude_columns)
+colnames.remove = if(nzchar(exclude_columns)) { x = trimws(readLines(exclude_columns)); x[nzchar(x)] } else character(0)
+unmatched = setdiff(colnames.remove, colnames(data$a))
+if(length(unmatched)) warning("Names in exclude_columns that are not in the input file (ignored): ", paste(unmatched, collapse=", "))
+design = bob_build_design(data$a, colnames.remove, as.numeric(nlevmax), intercept=intercept)
 say("n = ", length(data$y), " observations, nu = ", length(design$blocks), " variables (", ncol(design$X), " design columns)")
 if(glm_family == "binomial" && !all(data$y %in% c(0, 1))) stop("glm_family = binomial needs a 0/1 phenotype")
 
@@ -106,10 +110,10 @@ if(method == "exhaustive") {
 	best = list(model=which(ex$M[ord[1], ] == 1), lpo=ex$lpo[ord[1]])
 	elite = lapply(ord, function(i) list(model=which(ex$M[i, ] == 1), lpo=ex$lpo[i]))
 	res = lapply(all_tests, function(t) {
-		r = exhaustive_test(ex, t, m=1)
+		r = exhaustive_test(ex, t, m=as.integer(top_m))
 		inA = rowSums(ex$M[, t, drop=FALSE]) > 0
 		ia = which(inA)[which.max(ex$lpo[inA])]; io = which(!inA)[which.max(ex$lpo[!inA])]
-		list(tested=t, logT=r$logPO, logT1=r$logT1,
+		list(tested=t, logT=r$logPO, logT1=r$logT1, logTm=r$logT,
 			topA=list(keys=model_key(which(ex$M[ia, ] == 1)), lpo=ex$lpo[ia]),
 			topO=list(keys=model_key(which(ex$M[io, ] == 1)), lpo=ex$lpo[io]))
 	})
@@ -132,10 +136,11 @@ if(method == "exhaustive") {
 	}
 	# If a test finds a model better than the best model, restart with it:
 	# the best model is the anchor for every test.
-	for(round in 1:5) {
+	for(round in 1:6) {
 		res = run_all(best)
 		imp = which(vapply(res, `[[`, TRUE, "improved"))
 		if(length(imp) == 0) break
+		if(round == 6) { say("WARNING: tests kept finding better models after 5 restarts; rerun with larger search_candidates and search_restarts"); break }
 		cand = lapply(res[imp], function(r) {
 			k = if(r$topA$lpo[1] >= r$topO$lpo[1]) r$topA$keys[1] else r$topO$keys[1]
 			list(model=key2model(k), lpo=max(r$topA$lpo[1], r$topO$lpo[1]))
@@ -168,7 +173,7 @@ rows = lapply(names(res), function(nm) {
 		"log10 statistic" = fmt(logT / log(10)),
 		"-log10 Adjusted p-value" = ifelse(p_adj <= pvalue_cutoff, fmt(-log10(p_adj)), "-"),
 		"Significant (FWER)" = ifelse(p_adj <= as.numeric(alpha), "*", ""),
-		"-log10 Single-test p-value" = fmt(-log10(p_unadj)),
+		"-log10 Single-test p-value" = fmt(pmax(0, -log10(p_unadj))),
 		"Effect size in best model with" = fmt(est),
 		"Standard error" = fmt(se),
 		"Best model with" = vn(r$topA$keys[1]),
@@ -178,6 +183,12 @@ rows = lapply(names(res), function(nm) {
 		check.names=FALSE, stringsAsFactors=FALSE)
 })
 tab = do.call(rbind, rows)
+if(method == "exhaustive") {
+	# Exact best of both and top-m beside the exact Doublethink statistic
+	tab = data.frame(tab[, 1:4], "log10 best of both (exact)"=fmt(vapply(res, `[[`, 0, "logT1") / log(10)),
+		x=fmt(vapply(res, `[[`, 0, "logTm") / log(10)), tab[, -(1:4)], check.names=FALSE)
+	names(tab)[names(tab) == "x"] = paste0("log10 top-", top_m, " (exact)")
+}
 tab$`.ord` = vapply(res, `[[`, 0, "logT")
 is_group = tab$Test %in% names(groups)
 write_tab = function(d, f) { d$`.ord` = NULL; write.table(d, file.path(outdir, f), sep="\t", quote=FALSE, row.names=FALSE) }
@@ -201,6 +212,7 @@ bm = data.frame(Rank=seq_along(elite), "log10 PO vs null"=fmt(vapply(elite, `[[`
 write.table(bm, file.path(outdir, "results.bob.best-models.tsv"), sep="\t", quote=FALSE, row.names=FALSE)
 # Coefficients of the best model
 cf = E$coef(best$model)
+if(is.null(cf)) say("The best model is the grand null model, so there are no coefficients to write")
 if(!is.null(cf)) write.table(cf, file.path(outdir, "results.bob.best-model-coefficients.tsv"), sep="\t", quote=FALSE, row.names=FALSE)
 
 say("Statistic: ", stat_name)

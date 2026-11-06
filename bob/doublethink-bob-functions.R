@@ -50,7 +50,8 @@ bob_load_data = function(columns_filename, input_filename, cases_filename, exclu
 	colnames(col) = c("column", "class")
 	col$class[col$class == "float"] = "double"
 	a = read.csv(input_filename, check.names=FALSE, colClasses=as.character(col$class))
-	exclude.eids = if(!is.null(exclude_filename) && file.exists(exclude_filename)) scan(exclude_filename, quiet=TRUE) else numeric(0)
+	if(!is.null(exclude_filename) && !file.exists(exclude_filename)) stop("exclude_filename not found: ", exclude_filename)
+	exclude.eids = if(!is.null(exclude_filename)) scan(exclude_filename, quiet=TRUE) else numeric(0)
 	a = a[!a[, idcol] %in% exclude.eids, ]
 	isf = col$class == "factor"
 	if(any(isf)) {
@@ -90,11 +91,13 @@ bob_load_data = function(columns_filename, input_filename, cases_filename, exclu
 # variable is one column; a factor with L levels is L - 1 treatment-contrast
 # columns, as glm() would code it. Variables with one level, with more than
 # nlevmax levels, or named in colnames.remove are left out, as in lr.mcmc().
-bob_build_design = function(a, colnames.remove=character(0), nlevmax=50) {
+bob_build_design = function(a, colnames.remove=character(0), nlevmax=50, intercept=TRUE) {
 	nlev = unlist(lapply(a, nlevels))
 	rm = match(colnames.remove, colnames(a)); rm = rm[!is.na(rm)]
 	use = setdiff(which(nlev != 1 & nlev <= nlevmax), rm)
 	if(length(use) == 0) stop("No variables left to analyse")
+	if(!intercept && any(vapply(use, function(j) is.factor(a[, j]), TRUE)))
+		stop("Factors need intercept=\"true\" for best of both, top-m and exhaustive (without an intercept glm codes the first factor in each model differently, so a factor's contribution would depend on the model)")
 	pieces = list(); blocks = list(); start = 0
 	for(j in use) {
 		if(is.factor(a[, j])) {
@@ -351,6 +354,13 @@ neighbours = function(E, s, side, ncand=10, max_size=Inf) {
 # Every model scored is recorded in 'seen' (an environment key -> log PO).
 climb = function(E, s, side, ncand=10, max_size=Inf, seen=NULL, max_steps=1000) {
 	s = norm_model(s)
+	# A start larger than max_size is first cut down by the best drops.
+	while(length(s) > max_size) {
+		drops = lapply(s, function(i) s[s != i])
+		drops = drops[vapply(drops, side_ok, TRUE, side=side)]
+		if(length(drops) == 0) break
+		s = drops[[which.max(vapply(drops, E$lpo, 0))]]
+	}
 	cur = E$lpo(s)
 	if(!is.null(seen)) assign(model_key(s), cur, envir=seen)
 	for(step in seq_len(max_steps)) {
@@ -366,10 +376,10 @@ climb = function(E, s, side, ncand=10, max_size=Inf, seen=NULL, max_steps=1000) 
 }
 
 # A random add or drop move, used to perturb a model between climbs.
-perturb = function(s, nu, side, nmoves=3) {
+perturb = function(s, nu, side, nmoves=3, max_size=Inf) {
 	for(r in seq_len(nmoves)) {
 		pool = setdiff(seq_len(nu), side$forbid)
-		if(length(s) > 0 && runif(1) < 0.5) {
+		if(length(s) > 0 && (runif(1) < 0.5 || length(s) >= max_size)) {
 			t = s[-sample.int(length(s), 1)]
 		} else {
 			add = setdiff(pool, s)
@@ -424,7 +434,7 @@ find_best_model = function(E, y, design, ncand=10, n_restarts=20, perturb_moves=
 	}
 	if(verbose) cat("Best model after deterministic starts: log10 PO =", signif(best$lpo / log(10), 6), "\n")
 	for(r in seq_len(n_restarts)) {
-		s0 = perturb(best$model, E$nu, SIDE_FREE, perturb_moves)
+		s0 = perturb(best$model, E$nu, SIDE_FREE, perturb_moves, max_size)
 		res = climb(E, s0, SIDE_FREE, ncand, max_size)
 		if(res$lpo > best$lpo + 1e-10) {
 			best = res
@@ -513,7 +523,7 @@ run_test = function(E, tested, best, elite=list(), m=1, ncand=10, max_size=Inf, 
 # Scores all 2^nu models. Gives the exact Doublethink statistic PO_{A:O}
 # (full model averaging), and exact top-1 and top-m statistics. Used for
 # checking the search; feasible up to about nu = 20.
-exhaustive_scores = function(E, max_nu=22) {
+exhaustive_scores = function(E, max_nu=20) {
 	nu = E$nu
 	if(nu > max_nu) stop("Exhaustive enumeration is limited to nu <= ", max_nu)
 	M = as.matrix(expand.grid(rep(list(0:1), nu)))

@@ -20,7 +20,7 @@ The posterior odds of model $s$ against the grand null are
 
 $$\log \mathrm{PO}_{s:\varnothing} = |s|\log\mu + \frac{\mathrm{df}_s}{2}\log\xi_n + (1-\xi_n)\,\ell_{s:\varnothing}.$$
 
-The first term is the prior odds. The other two are the log Bayes factor (Johnson's approximation, `calc.logBF` in `code/doublethink-functions.R`). This is exactly what the MCMC uses, so all four methods score models identically. (Check: `method="exhaustive"` on the AMD example reproduces the "log10 Posterior odds" column of the exact results in [MCMC.md](MCMC.md) to two decimal places.)
+The first term is the prior odds. The other two are the log Bayes factor (Johnson's approximation, `calc.logBF` in `code/doublethink-functions.R`). This is exactly what the MCMC uses, so all four methods score models identically. (One exception: without an intercept, `glm` codes the first factor in a model with all its levels, so the new methods require `intercept="true"` when there are factors.) (Check: `method="exhaustive"` on the AMD example reproduces the "log10 Posterior odds" column of the exact results in [MCMC.md](MCMC.md) to two decimal places.)
 
 ## The tests
 
@@ -64,12 +64,12 @@ with $p=1$ when $T\le c\,\mu\sqrt{\xi_n}$. Two choices of $c$ are reported:
 
 Why the adjustment covers all tests at once: for all three statistics, shrinking the null (testing more variables) can only increase the statistic, because the "with" side gains models and the "without" side loses them. So each is a shortcut closed-testing procedure (Theorem 1 of the paper), and the FWER of the whole family is the false positive rate of one test with $c=\nu$.
 
-The formula is asymptotic: the p-value is accurate when it is small and $n$ is large. As in the MCMC tables, adjusted p-values above 0.02 (`pvalue_cutoff`) are shown as "-". The "Significant (FWER)" column marks adjusted $p\le$ `alpha` (default 0.01).
+The formula is asymptotic: the p-value is accurate when it is small and $n$ is large. It uses $\chi^2_1$ even for a factor with several coefficients, as the MCMC tables do. As in the MCMC tables, adjusted p-values above 0.02 (`pvalue_cutoff`) are shown as "-". The "Significant (FWER)" column marks adjusted $p\le$ `alpha` (default 0.01).
 
 ### What is guaranteed
 
 * **Full Doublethink:** the asymptotic level and strong FWER control are proved in the paper, under its conditions (a fixed number of variables, true effects not too small relative to $\sqrt{\log n/n}$, and the regularity conditions of each theorem).
-* **Best of both:** under the same conditions, $T_1$ has the same asymptotic false positive rate as the full statistic at the same threshold, and the same FWER control. The proof replaces one lemma of the paper (calibration of the sum) by its counterpart for the maximum; every other step carries over unchanged.
+* **Best of both:** under the same conditions, $T_1$ has the same asymptotic false positive rate as the full statistic at the same threshold, and the same FWER control. The proof (in a note accompanying the revised paper, not yet published) replaces one lemma of the paper, calibration of the sum, by its counterpart for the maximum; every other step carries over unchanged.
 * **Top-m:** asymptotically every $T_m$ has the same level. At finite $n$ the rigorous bound for $m\ge2$ is only about $m$ times the nominal level, because several models each below the threshold can add up to it; in simulations top-m sits close to nominal.
 * **All methods:** the guarantees hold for the statistic itself. The search must find the right models; see [SEARCH.md](SEARCH.md) for how this was checked.
 
@@ -83,13 +83,13 @@ This needs the full sums, which only the MCMC (or exhaustive enumeration) estima
 
 $$\sum_{s\in\mathcal{A}}\mathrm{PO}_{s:\varnothing}\ \ge\ \text{sum of the } m \text{ largest on } \mathcal{A},$$
 $$\sum_{s\in\mathcal{O}}\mathrm{PO}_{s:\varnothing}\ \le\ \frac{|\mathcal{O}|}{m}\times\text{sum of the } m \text{ largest on } \mathcal{O}\qquad\text{(every other term is at most the mean of the } m \text{ largest)},$$
-$$\text{so}\qquad \mathrm{PO}_{\mathcal{A}:\mathcal{O}}\ \ge\ \frac{m}{2^{\nu-k}}\,T_m .$$
+$$\text{so}\qquad \mathrm{PO}_{\mathcal{A}:\mathcal{O}}\ \ge\ \frac{\min(m,\,2^{\nu-k})}{2^{\nu-k}}\,T_m .$$
 
-So the Bayesian false discovery rate is at most $1/(1+\tau)$ if a test rejects only when $T_m\ge 2^{\nu-k}\tau/m$ (for best of both, $2^{\nu-k}\tau$). With many variables this threshold is enormous, so in practice **read the search methods as frequentist tests** and use the MCMC for posterior probabilities.
+(When $m\ge|\mathcal{O}|=2^{\nu-k}$ the "without" side is summed in full and the factor is 1.) So the Bayesian false discovery rate is at most $1/(1+\tau)$ if a test rejects only when $T_m\ge 2^{\nu-k}\tau/\min(m,2^{\nu-k})$ (for best of both, $2^{\nu-k}\tau$). The bound assumes the search found the true $m$ best models on the "without" side; missing one of them makes $T_m$ too large. With many variables this threshold is enormous, so in practice **read the search methods as frequentist tests** and use the MCMC for posterior probabilities.
 
 ## How closely the search statistics agree with the full test
 
-These numbers come from simulations in which all $2^\nu$ models were enumerated, so the full statistic $\mathrm{PO}_{\mathcal{A}:\mathcal{O}}$ was known exactly (Gaussian model, known variance, $\tau=\mu=h=1$). "Disagreement" is the number of data sets on which exactly one of the two tests rejects, as a share of the data sets on which the full test rejects.
+These numbers come from simulations done for the accompanying methods work (the scripts are not part of this repository). All $2^\nu$ models were enumerated, so the full statistic $\mathrm{PO}_{\mathcal{A}:\mathcal{O}}$ was known exactly, and the search was not involved. They use a Gaussian model with known variance (this software estimates the variance) and $\tau=\mu=h=1$. To compare the statistics on your own data with ν ≤ 20, use `method="exhaustive"`, which reports all three. "Disagreement" is the number of data sets on which exactly one of the two tests rejects, as a share of the data sets on which the full test rejects.
 
 **Equicorrelated designs, ν = 2 to 8, n = 100,000 (worst of 10 designs):**
 

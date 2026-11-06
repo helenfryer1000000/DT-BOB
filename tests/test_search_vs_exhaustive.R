@@ -27,7 +27,7 @@ check = function(label, y, design, family, intercept, mu, h, ms=c(1, 3, 10)) {
 	t0 = Sys.time()
 	best = find_best_model(E2, y, design, n_restarts=20, verbose=FALSE)
 	elite = cache_top(E2, 50)
-	out = c()
+	out = c(); total_bad = 0
 	for(m in ms) {
 		worst = 0; nbad = 0
 		for(j in seq_len(E$nu)) {
@@ -36,14 +36,17 @@ check = function(label, y, design, family, intercept, mu, h, ms=c(1, 3, 10)) {
 			d = abs(r$logT - e$logT)
 			worst = max(worst, d); if(d > 1e-6) nbad = nbad + 1
 		}
+		total_bad = total_bad + nbad
 		out = c(out, sprintf("m=%d: %d/%d tests exact (max |error| in log T = %.2g)", m, E$nu - nbad, E$nu, worst))
 	}
 	t_s = as.numeric(difftime(Sys.time(), t0, units="secs"))
 	best_exact = max(ex$lpo)
 	cat(sprintf("%-38s nu=%d n=%d  best model found: %s | %s | search %.1fs, exhaustive %.1fs\n",
 		label, E$nu, length(y), ifelse(abs(best$lpo - best_exact) < 1e-8, "yes", "NO"), paste(out, collapse="; "), t_s, t_ex))
-	invisible(nbad)
+	n_fail <<- n_fail + total_bad + (abs(best$lpo - best_exact) >= 1e-8)
+	invisible(total_bad)
 }
+n_fail = 0
 
 ## 1. The bundled AMD example (Gaussian, no intercept), and its binary version
 cfgdir = file.path(repo, "example")
@@ -69,3 +72,18 @@ s = sim(10000, 16, 0.8, b, "gaussian", 1); check("AR(0.8), 4 effects, gaussian",
 s = sim(10000, 16, 0.95, b, "gaussian", 2); check("AR(0.95), 4 effects, gaussian", s$y, s$design, "gaussian", TRUE, 0.1, 1)
 s = sim(10000, 16, 0.5, rep(0, 16), "gaussian", 3); check("AR(0.5), grand null, gaussian", s$y, s$design, "gaussian", TRUE, 0.1, 1)
 s = sim(5000, 12, 0.8, 3 * b[1:12], "binomial", 4); check("AR(0.8), 3 effects, binomial", s$y, s$design, "binomial", TRUE, 0.1, 1)
+
+## 3. A group test (top-3), on the AMD example
+E = make_engine(d$y, design, family="gaussian", intercept=FALSE, mu=0.1, h=1)
+ex = exhaustive_scores(E)
+E2 = make_engine(d$y, design, family="gaussian", intercept=FALSE, mu=0.1, h=1)
+best = find_best_model(E2, d$y, design, verbose=FALSE)
+for(g in list(c(1, 2, 3), c(5, 9), c(10, 14, 15))) {
+	r = run_test(E2, g, best, cache_top(E2, 50), m=3)
+	e = exhaustive_test(ex, g, m=3)
+	ok = abs(r$logT - e$logT) < 1e-6
+	cat(sprintf("Group {%s}, top-3: %s\n", paste(design$varnames[g], collapse=", "), ifelse(ok, "exact", "MISMATCH")))
+	if(!ok) n_fail = n_fail + 1
+}
+
+if(n_fail > 0) { cat("FAILED:", n_fail, "mismatches\n"); quit(status=1) } else cat("All checks passed\n")

@@ -46,10 +46,13 @@ logT = vapply(res, `[[`, 0, "logT")
 p = doublethink_p(logT, nu, 0.1, E$xi)
 cat("Variables with adjusted p < 0.01:", paste(colnames(X)[p < 0.01], collapse=" "), "\n")
 
-# Wider search on every test whose statistic could matter (log T > -5)
+# Independent wider search (fresh cache, different seed) on every test whose
+# statistic could matter (log T > -5)
 chk = which(logT > -5)
-best2 = find_best_model(E, y, design, ncand=40, n_restarts=100, verbose=FALSE)
-elite2 = cache_top(E, 200)
-d = vapply(chk, function(j) run_test(E, j, best2, elite2, m=m, ncand=40)$logT - logT[j], 0)
+set.seed(99)
+E2 = make_engine(y, design, family=family, intercept=TRUE, mu=0.1, h=1)
+best2 = find_best_model(E2, y, design, ncand=40, n_restarts=100, verbose=FALSE)
+elite2 = cache_top(E2, 200)
+d = vapply(chk, function(j) run_test(E2, j, best2, elite2, m=m, ncand=40)$logT - logT[j], 0)
 cat(sprintf("Wider search: same best model: %s; %d tests rechecked, %d changed by more than 1e-6 (max change in log T %.3g)\n",
 	identical(best$model, best2$model), length(chk), sum(abs(d) > 1e-6), max(abs(d))))
